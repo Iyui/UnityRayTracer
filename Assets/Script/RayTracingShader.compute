@@ -1,0 +1,144 @@
+﻿#pragma kernel CSMain
+//定义一张2D纹理，RW标识可读写
+RWTexture2D<float4> Result;
+float4x4 _CameraToWorld;
+float4x4 _CameraInverseProjection;
+
+Texture2D<float4> _SkyboxTexture;
+SamplerState sampler_SkyboxTexture;
+static const float PI = 3.14159265f;
+
+float2 _PixelOffset;
+//定义光线射线结构体，用原点+方向表示该射线
+struct Ray
+{
+    float3 origin;
+    float3 direction;
+};
+//创建射线函数
+Ray CreateRay(float3 origin, float3 direction)
+{
+    Ray ray;
+    ray.origin = origin;
+    ray.direction = direction;
+    return ray;
+}
+Ray CreateCameraRay(float2 uv)
+{
+    // 将相机位置(相机空间的[0,0,0])转到世界空间，作为射线原点
+    float3 origin = mul(_CameraToWorld, float4(0.0f, 0.0f, 0.0f, 1.0f)).xyz;
+    // 将屏幕上的像素从剪裁空间转到相机空间
+    float3 direction = mul(_CameraInverseProjection, float4(uv, 0.0f, 1.0f)).xyz;
+    // 将前面得到的位置再转到世界空间
+    direction = mul(_CameraToWorld, float4(direction, 0.0f)).xyz;
+    //单位化并将其作为射线方向
+    direction = normalize(direction);
+    return CreateRay(origin, direction);
+}
+//创建光线交点结构体
+struct RayHit
+{
+    float3 position;
+    float distance;
+    float3 normal;
+};
+//创建初始交点，用来判断之后交点的有效性
+RayHit CreateRayHit()
+{
+    RayHit hit;
+    hit.position = float3(0.0f, 0.0f, 0.0f);
+    //初始化其距原点距离为无限远
+    hit.distance = 1.#INF;
+    hit.normal = float3(0.0f, 0.0f, 0.0f);
+    return hit;
+}
+
+void IntersectGroundPlane(Ray ray, inout RayHit bestHit)
+{
+    // 正常判断应为distance = HitPointPos - Ray.Pos，只要distance < bestHit.distance
+    //即为有效碰撞。但这里硬编码地面为xz无限延伸y为0的平面，所以只需要判断y方向的距离即可
+    float t = -ray.origin.y / ray.direction.y;
+    //判断碰撞距离小于上次碰撞距离即为有效碰撞
+    if (t > 0 && t < bestHit.distance)
+    {
+        bestHit.distance = t;
+        bestHit.position = ray.origin + t * ray.direction;
+        bestHit.normal = float3(0.0f, 1.0f, 0.0f);
+    }
+}
+
+//球体碰撞检测，用float4(xyz表示位置，w表示半径)来表示一个球
+void IntersectSphere(Ray ray, inout RayHit bestHit, float4 sphere)
+{
+    // 以射线距离圆心的距离来判断是否相交
+    float3 d = ray.origin - sphere.xyz;
+    float p1 = -dot(ray.direction, d);
+    float p2sqr = p1 * p1 - dot(d, d) + sphere.w * sphere.w;
+    if (p2sqr < 0)
+        return;
+    float p2 = sqrt(p2sqr);
+    float t = p1 - p2 > 0 ? p1 - p2 : p1 + p2;
+    if (t > 0 && t < bestHit.distance)
+    {
+        bestHit.distance = t;
+        bestHit.position = ray.origin + t * ray.direction;
+        //设定圆心到碰撞点的方向矢量单位化即为球体的法线
+        bestHit.normal = normalize(bestHit.position - sphere.xyz);
+    }
+}
+
+RayHit Trace(Ray ray)
+{
+    RayHit bestHit = CreateRayHit();
+    //目前这里只检测了地面的碰撞
+    IntersectGroundPlane(ray, bestHit);
+    //设定球体位置在(0,3,0),半径为1
+    IntersectSphere(ray, bestHit, float4(0, 3.0f, 0, 1.0f));
+    return bestHit;
+}
+
+//目前仅是从相机发射射线并判断是否与地面相交，还没有多次反弹射线
+float3 Shade(inout Ray ray, RayHit hit)
+{
+    //判断是否碰撞到地面
+    if (hit.distance < 1.#INF)
+    {
+        // 返回绿色的地面
+        return hit.normal * 0.5f + 0.5f;
+    }
+    else
+    {
+        // 采样天空球
+        float theta = acos(ray.direction.y) / -PI;
+        float phi = atan2(ray.direction.x, -ray.direction.z) / -PI * 0.5f;
+        return _SkyboxTexture.SampleLevel(sampler_SkyboxTexture, float2(phi, theta), 0).xyz;
+    }
+}
+
+
+
+//申请的线程数
+[numthreads(8, 8, 1)]
+void CSMain(uint3 id : SV_DispatchThreadID)
+{
+    // 获取传入的RT的宽高尺寸
+    uint width, height;
+    // 获取资源尺寸
+    Result.GetDimensions(width, height);
+    // 将RT的像素位置id.xy转为屏幕像素空间的uv [-1~1]，偏移0.5以便将像素中心作位uv起始
+    //float2 uv = float2((id.xy + float2(0.5f, 0.5f)) / float2(width, height) * 2.0f - 1.0f);
+    float2 uv = float2((id.xy + _PixelOffset) / float2(width, height) * 2.0f - 1.0f);
+    // 
+    // 在相机上朝屏幕逐像素创建光线
+    Ray ray = CreateCameraRay(uv);
+    // 计算光线方向转为uv对天空纹理进行采样
+    float theta = acos(ray.direction.y) / -PI;
+    float phi = atan2(ray.direction.x, -ray.direction.z) / -PI * 0.5f;
+    //采样方式和cg的shader不同，使用Texture.SampleLevel进行采样，最后参数为mipmap的level
+    //Result[id.xy] = _SkyboxTexture.SampleLevel(sampler_SkyboxTexture, float2(phi, theta), 0);
+    
+    // 相交检测并着色
+    RayHit hit = Trace(ray);
+    float3 result = Shade(ray, hit);
+    Result[id.xy] = float4(result, 1);
+}
