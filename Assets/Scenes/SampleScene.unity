@@ -154,6 +154,10 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   RayTracingShader: {fileID: 7200000, guid: 92a7f9cfd1af5b848b8f818822ef922a, type: 3}
   SkyboxTexture: {fileID: 2800000, guid: afd58a137d79b674cbea9ec4a2c0525c, type: 3}
+  SphereSeed: 0
+  SphereRadius: {x: 3, y: 8}
+  SpheresMax: 100
+  SpherePlacementRadius: 100
 --- !u!4 &159026753
 Transform:
   m_ObjectHideFlags: 0
@@ -359,3 +363,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   RayTracingShader: {fileID: 7200000, guid: 92a7f9cfd1af5b848b8f818822ef922a, type: 3}
   SkyboxTexture: {fileID: 2800000, guid: c31dff0754fb32c48a6f9e014cc0479c, type: 3}
+  SphereSeed: 1
+  SphereRadius: {x: 3, y: 8}
+  SpheresMax: 100
+  SpherePlacementRadius: 100

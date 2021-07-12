@@ -1,5 +1,6 @@
 ﻿//思路，创建一张RT，将需要绘制的内容先绘制到RT上，最后传入帧缓存显示
 using UnityEngine;
+using System.Collections.Generic;
 public class RayTracingMaster : MonoBehaviour
 {
     //定义使用的CS
@@ -14,10 +15,79 @@ public class RayTracingMaster : MonoBehaviour
     private uint _currentSample = 0;
     //半透明混合的材质
     private Material _addMaterial;
+
+    //球随机种子，用来产生球体生成时的随机数
+    public int SphereSeed;
+    //球体半径，定义一个最小，一个最大值，进行随机
+    public Vector2 SphereRadius = new Vector2(3.0f, 8.0f);
+    //场景中的球体数量
+    public uint SpheresMax = 100;
+    //场景中的球的随机分布半径
+    public float SpherePlacementRadius = 100.0f;
+    //定义一个传入computeshader的缓存，将生成的所有球体传入CS
+    private ComputeBuffer _sphereBuffer;
+
+    //定义球结构体，用来存储球体的所有信息，暂时只需要位置和半径信息
+    struct Sphere
+    {
+        public Vector3 position;
+        public float radius;
+    };
     private void Awake()
     {
         _camera = GetComponent<Camera>();
     }
+
+    //脚本生效时，对场景进行创建，使用SetUpScene()函数
+    private void OnEnable()
+    {
+        _currentSample = 0;
+        SetUpScene();
+    }//创建场景
+    private void SetUpScene()
+    {
+        //种子，避免每次重新生成场景
+        Random.InitState(SphereSeed);
+        //定义球列表，用来存放已生成的球
+        List<Sphere> spheres = new List<Sphere>();
+        // 创建一定数量的球
+        for (int i = 0; i < SpheresMax; i++)
+        {
+            Sphere sphere = new Sphere();
+            // 随机球体的半径
+            sphere.radius = SphereRadius.x + Random.value * (SphereRadius.y - SphereRadius.x);
+            //以环形分布产生二维随机数并乘上分布半径
+            Vector2 randomPos = Random.insideUnitCircle * SpherePlacementRadius;
+            //将随机数字赋予球体位置的x，z，高度y固定为球体半径(球体均贴地)
+            sphere.position = new Vector3(randomPos.x, sphere.radius, randomPos.y);
+            // 判断球体之间的相交性
+            foreach (Sphere other in spheres)
+            {
+                float minDist = sphere.radius + other.radius;
+                if (Vector3.SqrMagnitude(sphere.position - other.position) < minDist * minDist)
+                    goto SkipSphere;
+            }
+            // 将符合的球体填入列表
+            spheres.Add(sphere);
+        //未通过相交检测的球跳过
+        SkipSphere:
+            continue;
+        }
+        // 将球体列表塞入缓存
+        //这里注意，申请缓存需要至少如下两个参数1、缓存元素个数  2、每元素字节数
+        //我们只需要4个浮点数，4 * 4即16字节大小
+        _sphereBuffer = new ComputeBuffer(spheres.Count, 16);
+        //塞入数据
+        _sphereBuffer.SetData(spheres);
+    }
+    //脚本销毁时，释放ComputeBuffer 
+    private void OnDisable()
+    {
+        if (_sphereBuffer != null)
+            _sphereBuffer.Release();
+    }
+
+
 
     private void SetShaderParameters()
     {
@@ -28,6 +98,7 @@ public class RayTracingMaster : MonoBehaviour
         //向CS中传递天空纹理
         RayTracingShader.SetTexture(0, "_SkyboxTexture", SkyboxTexture);
         RayTracingShader.SetVector("_PixelOffset", new Vector2(Random.value, Random.value));
+        RayTracingShader.SetBuffer(0, "_Spheres", _sphereBuffer); 
     }
 
     //完成所有渲染之后调用，通常用于后处理
@@ -35,7 +106,8 @@ public class RayTracingMaster : MonoBehaviour
     {
         //之前设置参数忘了调用了，感谢 @林一 的提醒。
         SetShaderParameters();
-        Render(destination);
+        if(_currentSample<500)
+            Render(destination);
     }
 
     private void Render(RenderTexture destination)

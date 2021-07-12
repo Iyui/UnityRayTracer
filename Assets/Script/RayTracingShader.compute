@@ -15,6 +15,15 @@ struct Ray
     float3 origin;
     float3 direction;
 };
+
+//定义球体结构体
+struct Sphere
+{
+    float3 position;
+    float radius;
+};
+//定义缓存，用来接收脚本传入的数据
+StructuredBuffer<Sphere> _Spheres;
 //创建射线函数
 Ray CreateRay(float3 origin, float3 direction)
 {
@@ -68,12 +77,16 @@ void IntersectGroundPlane(Ray ray, inout RayHit bestHit)
 }
 
 //球体碰撞检测，用float4(xyz表示位置，w表示半径)来表示一个球
-void IntersectSphere(Ray ray, inout RayHit bestHit, float4 sphere)
+//光线与球体相交检测
+void IntersectSphere(Ray ray, inout RayHit bestHit, Sphere sphere)
 {
-    // 以射线距离圆心的距离来判断是否相交
-    float3 d = ray.origin - sphere.xyz;
+    // Calculate distance along the ray where the sphere is intersected
+    //距离
+    float3 d = ray.origin - sphere.position;
+    //圆心做作垂线交于射线的点到射线原点距离
     float p1 = -dot(ray.direction, d);
-    float p2sqr = p1 * p1 - dot(d, d) + sphere.w * sphere.w;
+    //半径方减去p1平方为射线交点(如果有)到垂线于射线交点的距离平方
+    float p2sqr = p1 * p1 - dot(d, d) + sphere.radius * sphere.radius;
     if (p2sqr < 0)
         return;
     float p2 = sqrt(p2sqr);
@@ -82,18 +95,20 @@ void IntersectSphere(Ray ray, inout RayHit bestHit, float4 sphere)
     {
         bestHit.distance = t;
         bestHit.position = ray.origin + t * ray.direction;
-        //设定圆心到碰撞点的方向矢量单位化即为球体的法线
-        bestHit.normal = normalize(bestHit.position - sphere.xyz);
+        bestHit.normal = normalize(bestHit.position - sphere.position);
     }
 }
-
 RayHit Trace(Ray ray)
 {
     RayHit bestHit = CreateRayHit();
-    //目前这里只检测了地面的碰撞
-    IntersectGroundPlane(ray, bestHit);
-    //设定球体位置在(0,3,0),半径为1
-    IntersectSphere(ray, bestHit, float4(0, 3.0f, 0, 1.0f));
+    //进行光线追踪检测
+//IntersectSphere(ray, bestHit, float4(0,2,0,1));
+// 追踪所有球体
+    uint numSpheres, stride;
+    //在定义的缓存中获取资源维度  资源中结构的数量,每个结构元素的跨度(以字节为单位)
+    _Spheres.GetDimensions(numSpheres, stride);
+    for (uint i = 0; i < numSpheres; i++)
+        IntersectSphere(ray, bestHit, _Spheres[i]);
     return bestHit;
 }
 
