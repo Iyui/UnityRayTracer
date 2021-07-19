@@ -60,6 +60,7 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="Assets\Script\RayTracingMaster.cs" />
+    <Compile Include="Assets\Script\CameraLookController.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="Assets\Script\RayTracingShader.compute" />

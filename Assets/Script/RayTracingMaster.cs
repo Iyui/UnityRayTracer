@@ -26,7 +26,7 @@ public class RayTracingMaster : MonoBehaviour
     public float SpherePlacementRadius = 100.0f;
     //定义一个传入computeshader的缓存，将生成的所有球体传入CS
     private ComputeBuffer _sphereBuffer;
-
+    public Light DirectionalLight;
     //定义球结构体，用来存储球体的所有信息，暂时只需要位置和半径信息
     struct Sphere
     {
@@ -98,16 +98,17 @@ public class RayTracingMaster : MonoBehaviour
         //向CS中传递天空纹理
         RayTracingShader.SetTexture(0, "_SkyboxTexture", SkyboxTexture);
         RayTracingShader.SetVector("_PixelOffset", new Vector2(Random.value, Random.value));
-        RayTracingShader.SetBuffer(0, "_Spheres", _sphereBuffer); 
+        RayTracingShader.SetBuffer(0, "_Spheres", _sphereBuffer);
+
+        Vector3 l = DirectionalLight.transform.forward;
+        RayTracingShader.SetVector("_DirectionalLight", new Vector4(l.x, l.y, l.z, DirectionalLight.intensity));
     }
 
     //完成所有渲染之后调用，通常用于后处理
     private void OnRenderImage(RenderTexture source, RenderTexture destination)
     {
-        //之前设置参数忘了调用了，感谢 @林一 的提醒。
         SetShaderParameters();
-        if(_currentSample<500)
-            Render(destination);
+        Render(destination);
     }
 
     private void Render(RenderTexture destination)

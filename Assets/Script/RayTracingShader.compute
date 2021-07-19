@@ -14,6 +14,7 @@ struct Ray
 {
     float3 origin;
     float3 direction;
+    float3 energy;
 };
 
 //定义球体结构体
@@ -30,6 +31,7 @@ Ray CreateRay(float3 origin, float3 direction)
     Ray ray;
     ray.origin = origin;
     ray.direction = direction;
+    ray.energy = float3(1.0f, 1.0f, 1.0f);
     return ray;
 }
 Ray CreateCameraRay(float2 uv)
@@ -112,23 +114,36 @@ RayHit Trace(Ray ray)
     return bestHit;
 }
 
-//目前仅是从相机发射射线并判断是否与地面相交，还没有多次反弹射线
-float3 Shade(inout Ray ray, RayHit hit)
-{
-    //判断是否碰撞到地面
-    if (hit.distance < 1.#INF)
-    {
-        // 返回绿色的地面
-        return hit.normal * 0.5f + 0.5f;
-    }
-    else
-    {
-        // 采样天空球
-        float theta = acos(ray.direction.y) / -PI;
-        float phi = atan2(ray.direction.x, -ray.direction.z) / -PI * 0.5f;
-        return _SkyboxTexture.SampleLevel(sampler_SkyboxTexture, float2(phi, theta), 0).xyz;
-    }
-}
+    float3 Shade(inout Ray ray, RayHit hit) {
+        if (hit.distance < 1.#INF) {
+            float3 specular = float3(0.6f, 0.6f, 0.6f);
+            float3 albedo = float3(0.8f, 0.8f, 0.8f); //高光反射率
+            //Reflect the ray and multiply energy with specular reflection;
+            ray.origin = hit.position + hit.normal * 0.001f;
+            ray.direction = reflect(ray.direction, hit.normal);
+            ray.energy *= specular;
+            //Return nothing
+            //return float3(0.0f, 0.0f, 0.0f);
+            // Shadow test ray
+            bool shadow = false;
+            /*Ray shadowRay = CreateRay(hit.position + hit.normal * 0.001f, -1 * _DirectionalLight.xyz);
+            RayHit shadowHit = Trace(shadowRay);
+            if (shadowHit.distance != 1.#INF)
+            {
+                return float3(0.0f, 0.0f, 0.0f);
+            }*/
+            return float3(0.0f, 0.0f, 0.0f);
+            //return saturate(dot(hit.normal, _DirectionalLight.xyz) * -1) * _DirectionalLight.w * albedo;
+        }
+        else {
+            ray.energy = 0.0f;
+            //采样天空盒
+            float theta = acos(ray.direction.y) / -PI;
+            float phi = atan2(ray.direction.x, -ray.direction.z) / -PI * 0.5f;
+            return _SkyboxTexture.SampleLevel(sampler_SkyboxTexture, float2(phi, theta), 0).xyz;
+        }
+    } 
+
 
 
 
@@ -153,7 +168,15 @@ void CSMain(uint3 id : SV_DispatchThreadID)
     //Result[id.xy] = _SkyboxTexture.SampleLevel(sampler_SkyboxTexture, float2(phi, theta), 0);
     
     // 相交检测并着色
-    RayHit hit = Trace(ray);
-    float3 result = Shade(ray, hit);
+    //Trace and shade
+
+    float3 result = float3(0, 0, 0);
+    for (int i = 0; i < 8; i++)
+    {
+        RayHit hit = Trace(ray);
+        result += ray.energy * Shade(ray, hit);
+        if (!any(ray.energy))
+            break;
+    } 
     Result[id.xy] = float4(result, 1);
 }
